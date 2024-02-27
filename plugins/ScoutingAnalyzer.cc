@@ -185,6 +185,16 @@ private:
   vector<Int_t> SV_mu2idx;
   vector<Float16_t> SV_mass;
 
+  //Secondary vertex (overlap) details
+  UInt_t n_SVOverlap;
+  vector<Float16_t> SVOverlap_x;
+  vector<Float16_t> SVOverlap_y;
+  vector<Float16_t> SVOverlap_z;
+  vector<Float16_t> SVOverlap_dxy;
+  vector<Int_t> SVOverlap_sv1idx;
+  vector<Int_t> SVOverlap_sv2idx;
+  vector<Float16_t> SVOverlap_mass;
+
   /*
   //PF candidates
   UInt_t n_pf;
@@ -382,6 +392,16 @@ ScoutingAnalyzer::ScoutingAnalyzer(const edm::ParameterSet& iConfig):
   tree->Branch("SV_mu1idx", &SV_mu1idx);
   tree->Branch("SV_mu2idx", &SV_mu2idx);
   tree->Branch("SV_mass", &SV_mass);
+
+  // Overlap secondary vertex info
+  tree->Branch("n_SVOverlap", &n_SVOverlap, "n_SVOverlap/i");
+  tree->Branch("SVOverlap_x", &SVOverlap_x);
+  tree->Branch("SVOverlap_y", &SVOverlap_y);
+  tree->Branch("SVOverlap_z", &SVOverlap_z);
+  tree->Branch("SVOverlap_dxy", &SVOverlap_dxy);
+  tree->Branch("SVOverlap_sv1idx", &SVOverlap_sv1idx);
+  tree->Branch("SVOverlap_sv2idx", &SVOverlap_sv2idx);
+  tree->Branch("SVOverlap_mass", &SVOverlap_mass);
 
   /*
   // Pf particles
@@ -668,6 +688,64 @@ void ScoutingAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& 
       n_SV++;
     }
   }
+
+  //Make OverlapSVs
+  float highest_sv_uncert_x, highest_sv_uncert_y, highest_sv_uncert_z;
+  float sv_delx, sv_dely, sv_delz;
+  int svoverlap_mu1idx, svoverlap_mu2idx, svoverlap_mu3idx, svoverlap_mu4idx;
+
+  n_SVOverlap = 0;
+
+  for(UInt_t sv_i=0; sv_i<n_SV; sv_i++){
+    for(UInt_t sv_j=(sv_i+1); sv_j<n_SV; sv_j++){
+      highest_sv_uncert_x = (SV_xError.at(sv_i) > SV_xError.at(sv_j)) ? SV_xError.at(sv_i) : SV_xError.at(sv_j); 
+      highest_sv_uncert_y = (SV_yError.at(sv_i) > SV_yError.at(sv_j)) ? SV_yError.at(sv_i) : SV_yError.at(sv_j); 
+      highest_sv_uncert_z = (SV_zError.at(sv_i) > SV_zError.at(sv_j)) ? SV_zError.at(sv_i) : SV_zError.at(sv_j); 
+
+      sv_delx = TMath::Abs(SV_x.at(sv_i) - SV_x.at(sv_j));
+      sv_dely = TMath::Abs(SV_y.at(sv_i) - SV_y.at(sv_j));
+      sv_delz = TMath::Abs(SV_z.at(sv_i) - SV_z.at(sv_j));
+
+      //If the positions are closer than max uncertainty, they overlap
+      if(((sv_delx<highest_sv_uncert_x)&&(sv_dely<highest_sv_uncert_y))&&(sv_delz<highest_sv_uncert_z)){
+        SVOverlap_x.push_back(0.5*(SV_x.at(sv_i) + SV_x.at(sv_j)));
+        SVOverlap_y.push_back(0.5*(SV_y.at(sv_i) + SV_y.at(sv_j)));
+        SVOverlap_z.push_back(0.5*(SV_z.at(sv_i) + SV_z.at(sv_j)));
+        SVOverlap_dxy.push_back(0.5*(SV_dxy.at(sv_i) + SV_dxy.at(sv_j)));
+        SVOverlap_sv1idx.push_back(sv_i);
+        SVOverlap_sv2idx.push_back(sv_j);
+
+        svoverlap_mu1idx = SV_mu1idx.at(sv_i);
+        svoverlap_mu2idx = SV_mu2idx.at(sv_i);
+        svoverlap_mu3idx = SV_mu1idx.at(sv_j);
+        svoverlap_mu4idx = SV_mu2idx.at(sv_j);
+
+        //Mass calculation if all four ids are valid
+        if((svoverlap_mu1idx==-1)||(svoverlap_mu2idx==-1)||(svoverlap_mu3idx==-1)||(svoverlap_mu4idx==-1)) SVOverlap_mass.push_back(-1.);
+
+        else{
+          TLorentzVector SVOverlap_Sum;
+          auto muon1 = muonsHandle->at(svoverlap_mu1idx);
+          auto muon2 = muonsHandle->at(svoverlap_mu2idx);
+          auto muon3 = muonsHandle->at(svoverlap_mu3idx);
+          auto muon4 = muonsHandle->at(svoverlap_mu4idx);
+
+          TLorentzVector muon_fourvec1, muon_fourvec2, muon_fourvec3, muon_fourvec4;
+          
+          muon_fourvec1.SetPtEtaPhiM(muon1.pt(), muon1.eta(), muon1.phi(), muon1.m());
+          muon_fourvec2.SetPtEtaPhiM(muon2.pt(), muon2.eta(), muon2.phi(), muon2.m());
+          muon_fourvec3.SetPtEtaPhiM(muon3.pt(), muon3.eta(), muon3.phi(), muon3.m());
+          muon_fourvec4.SetPtEtaPhiM(muon4.pt(), muon4.eta(), muon4.phi(), muon4.m());
+
+          SVOverlap_Sum = muon_fourvec1 + muon_fourvec2 + muon_fourvec3 + muon_fourvec4;
+          SVOverlap_mass.push_back(SVOverlap_Sum.M());
+        }
+
+        n_SVOverlap++;
+      }
+    } 
+  }
+
   /*
   n_pf = 0;
   if(pfValid) {
@@ -801,6 +879,16 @@ void ScoutingAnalyzer::clearVars() {
   SV_mu1idx.clear();
   SV_mu2idx.clear();
   SV_mass.clear();
+
+
+  SVOverlap_x.clear();
+  SVOverlap_y.clear();
+  SVOverlap_z.clear();
+  SVOverlap_dxy.clear();
+  SVOverlap_sv1idx.clear();
+  SVOverlap_sv2idx.clear();
+  SVOverlap_mass.clear();
+
 
   
 
