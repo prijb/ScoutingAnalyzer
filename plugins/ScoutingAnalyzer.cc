@@ -280,6 +280,10 @@ private:
   //Vertex id
   vector<std::vector<int>> Muon_vtxIndx;
 
+  vector<int> Muon_bestAssocSVIdx;
+  vector<int> Muon_bestAssocSVOverlapIdx;
+
+
   //Hit pattern info
   vector<uint8_t> Muon_hitCount;
   vector<uint8_t> Muon_beginTrackHits;
@@ -486,6 +490,8 @@ ScoutingAnalyzer::ScoutingAnalyzer(const edm::ParameterSet& iConfig):
   tree->Branch("Muon_trkdz", &Muon_trkdsz);
 
   tree->Branch("Muon_vtxIndx", &Muon_vtxIndx);
+  tree->Branch("Muon_bestAssocSVIdx", &Muon_bestAssocSVIdx);
+  tree->Branch("Muon_bestAssocSVOverlapIdx", &Muon_bestAssocSVOverlapIdx);
 
   tree->Branch("Muon_hitCount", &Muon_hitCount);
   tree->Branch("Muon_beginTrackHits", &Muon_beginTrackHits);
@@ -812,6 +818,40 @@ void ScoutingAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& 
       Muon_trkdszerror.push_back(muons_iter->trk_dszError());
 
       Muon_vtxIndx.push_back(muons_iter->vtxIndx());
+      
+      //Get more useful integer variables from vtxIndx that has association with SV and SVOverlap
+      int muons_iter_bestAssocSVOverlapIdx = -1;
+      int muons_iter_bestAssocSVIdx = -1;
+      std::vector<float> muons_iter_svassoc_prob{};
+      //Find best associated SV (or SVOverlap)
+      std::vector<int> muons_iter_vtxindx = muons_iter->vtxIndx();
+      //i iterates over the vertex indices of the muon
+      for(UInt_t i=0; i<muons_iter_vtxindx.size(); i++){
+        int vtxindx = muons_iter_vtxindx.at(i);
+
+        //To do: Using the SV vtxindx as reference, find the number of excess hits of the Muon with respect to the SV
+
+        //Check if the muon is matched to a vertex that itself makes up an overlapping SV
+        if(std::find(SVOverlap_sv1idx.begin(), SVOverlap_sv1idx.end(), vtxindx) != SVOverlap_sv1idx.end()){
+          muons_iter_bestAssocSVOverlapIdx = vtxindx;
+        }
+        if(std::find(SVOverlap_sv2idx.begin(), SVOverlap_sv2idx.end(), vtxindx) != SVOverlap_sv2idx.end()){
+          muons_iter_bestAssocSVOverlapIdx = vtxindx;
+        }
+        //Also add the probability of the vertex the muon is associated to
+        muons_iter_svassoc_prob.push_back(TMath::Prob(SV_chi2.at(vtxindx), SV_ndof.at(vtxindx)));
+      }
+      //If not associated to an OverlapSV, find the best SV
+      if((muons_iter_bestAssocSVOverlapIdx==-1)&&(muons_iter_svassoc_prob.size()>0)){
+        std::vector<float>::iterator maxprob_iterator;
+        int maxprob_index;
+        maxprob_iterator = std::max_element(muons_iter_svassoc_prob.begin(), muons_iter_svassoc_prob.end());
+        maxprob_index = std::distance(muons_iter_svassoc_prob.begin(), maxprob_iterator);
+        muons_iter_bestAssocSVIdx = muons_iter_vtxindx.at(maxprob_index);
+      }
+
+      Muon_bestAssocSVIdx.push_back(muons_iter_bestAssocSVIdx);
+      Muon_bestAssocSVOverlapIdx.push_back(muons_iter_bestAssocSVOverlapIdx);
 
       Muon_hitCount.push_back((muons_iter->trk_hitPattern()).hitCount);
       Muon_beginTrackHits.push_back((muons_iter->trk_hitPattern()).beginTrackHits);
@@ -925,6 +965,8 @@ void ScoutingAnalyzer::clearVars() {
   Muon_trkdsz.clear();
 
   Muon_vtxIndx.clear();
+  Muon_bestAssocSVIdx.clear();
+  Muon_bestAssocSVOverlapIdx.clear();
 
   Muon_hitCount.clear();
   Muon_beginTrackHits.clear();
